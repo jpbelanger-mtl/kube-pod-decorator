@@ -1,16 +1,17 @@
 package conf
 
 import (
-	"log"
-
 	"gopkg.in/yaml.v2"
 
+	"github.com/jpbelanger-mtl/kube-pod-decorator/logger"
 	"github.com/kelseyhightower/envconfig"
 )
 
+const default_vault_secret_path string = "/var/run/secrets/vaultproject.io/secret.json"
+const default_consul_token_path string = "consul/creds/readonly"
+
 // Specification is the basic configuration injected to the wrapper process
 type Specification struct {
-	VaultHost       string
 	ApplicationName string
 	VaultSecretPath string
 	ConsulTokenPath string
@@ -18,22 +19,22 @@ type Specification struct {
 
 //InjectionDefinition represente the structure of the consol config file
 type InjectionDefinition struct {
-	Key       string           `yaml:"key"`
-	Env       []EnvVar         `yaml:"env"`
-	Files     []FileSource     `yaml:"files"`
-	Templates []TemplateSource `yaml:"templates"`
-	Vault     []GenericRef     `yaml:"vault"`
-	Consul    []GenericRef     `yaml:"consul"`
+	Key       string            `yaml:"key"`
+	Env       []*EnvVar         `yaml:"env"`
+	Files     []*FileSource     `yaml:"files"`
+	Templates []*TemplateSource `yaml:"templates"`
+	Vault     []*GenericRef     `yaml:"vault"`
+	Consul    []*GenericRef     `yaml:"consul"`
 }
 type EnvVar struct {
-	Name      string       `yaml:"name"`
-	Value     string       `yaml:"value,omitempty"`
-	ValueFrom EnvVarSource `yaml:"valueFrom,omitempty"`
+	Name      string        `yaml:"name"`
+	Value     string        `yaml:"value,omitempty"`
+	ValueFrom *EnvVarSource `yaml:"valueFrom,omitempty"`
 }
 
 type EnvVarSource struct {
-	SecretKeyRef SecretKeyRefSelector `yaml:"secretGeneric,omitempty"`
-	Consul       ConsulSelector       `yaml:"consul,omitempty"`
+	SecretKeyRef *SecretKeyRefSelector `yaml:"secretKeyRef,omitempty"`
+	Consul       *ConsulSelector       `yaml:"consulKeyRef,omitempty"`
 }
 type SecretKeyRefSelector struct {
 	Name string `yaml:"name"`
@@ -49,8 +50,9 @@ type FileSource struct {
 	Destination string `yaml:"destination"`
 }
 type TemplateSource struct {
-	Env []EnvVar `yaml:"env"`
-	FileSource
+	Name        string    `yaml:"name"`
+	Destination string    `yaml:"destination"`
+	Env         []*EnvVar `yaml:"env"`
 }
 type GenericRef struct {
 	Name string `yaml:"name"`
@@ -58,15 +60,23 @@ type GenericRef struct {
 	Path string `yaml:"path"`
 }
 
+func (s *Specification) validate() {
+	if len(s.ApplicationName) == 0 {
+		logger.GetLogger().Fatal("ApplicationName can not be empty")
+	}
+}
+
 func GetSpecification() Specification {
 	s := Specification{
-		VaultSecretPath: "/var/run/secrets/vaultproject.io/secret.json",
-		ConsulTokenPath: "consul/creds/readonly",
+		VaultSecretPath: default_vault_secret_path,
+		ConsulTokenPath: default_consul_token_path,
 	}
 	err := envconfig.Process("k8sPodDecorator", &s)
 	if err != nil {
-		log.Fatal(err)
+		logger.GetLogger().Fatal(err)
 	}
+
+	s.validate()
 
 	return s
 }
@@ -75,7 +85,7 @@ func GetInjectionDefinition(jsonBlob []byte) InjectionDefinition {
 	var definition InjectionDefinition
 	err := yaml.Unmarshal(jsonBlob, &definition)
 	if err != nil {
-		log.Fatal(err)
+		logger.GetLogger().Fatal(err)
 	}
 	return definition
 }

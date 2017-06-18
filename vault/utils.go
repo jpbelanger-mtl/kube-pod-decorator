@@ -1,13 +1,13 @@
 package vault
 
 import (
-	"log"
 	"strings"
 
 	"io/ioutil"
 
-	"../conf"
 	vault "github.com/hashicorp/vault/api"
+	"github.com/jpbelanger-mtl/kube-pod-decorator/conf"
+	"github.com/jpbelanger-mtl/kube-pod-decorator/logger"
 )
 
 type VaultUtils struct {
@@ -27,20 +27,20 @@ func NewVaultUtils(
 }
 
 func (vf *VaultUtils) init() {
-	vaultConfig := vault.Config{Address: vf.config.VaultHost}
-	client, err := vault.NewClient(&vaultConfig)
+	vaultConfig := vault.DefaultConfig()
+	client, err := vault.NewClient(vaultConfig)
 	if err != nil {
-		log.Fatal(err)
+		logger.GetLogger().Fatal(err)
 	}
 	token, err := ioutil.ReadFile(vf.config.VaultSecretPath)
 	if err != nil {
-		log.Fatal(err)
+		logger.GetLogger().Fatal(err)
 	}
 	client.SetToken(strings.TrimSpace(string(token)))
 
 	secret, err := client.Auth().Token().LookupSelf()
 	if err != nil {
-		log.Fatal(err)
+		logger.GetLogger().Fatal(err)
 	}
 
 	vf.leaseID = secret.LeaseID
@@ -55,8 +55,8 @@ func (vf *VaultUtils) Renew() *error {
 	return nil
 }
 
-func (vf *VaultUtils) Read(reference conf.GenericRef) (*vault.Secret, error) {
-	log.Printf("Fetching secret at %v", reference.Path)
+func (vf *VaultUtils) Read(reference *conf.GenericRef) (*vault.Secret, error) {
+	logger.GetLogger().Infof("Fetching secret at %v", reference.Path)
 	secret, err := vf.client.Logical().Read(reference.Path)
 	if err != nil {
 		return nil, err

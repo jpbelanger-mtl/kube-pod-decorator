@@ -1,18 +1,22 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
+	"html/template"
 	"log"
 	"os"
 	"os/exec"
 	"os/signal"
 	"syscall"
 
-	"io/ioutil"
-
+	consulapi "github.com/hashicorp/consul/api"
 	vaultapi "github.com/hashicorp/vault/api"
 
+	"io/ioutil"
+
 	"github.com/jpbelanger-mtl/kube-pod-decorator/conf"
+	"github.com/jpbelanger-mtl/kube-pod-decorator/consul"
 	"github.com/jpbelanger-mtl/kube-pod-decorator/logger"
 	"github.com/jpbelanger-mtl/kube-pod-decorator/vault"
 )
@@ -20,47 +24,76 @@ import (
 func main() {
 	logger.InitLogger("info")
 
-	var s conf.Specification = conf.GetSpecification()
+	var s = conf.GetSpecification()
 
-	definition := test()
 	vaultUtils := vault.NewVaultUtils(s)
 
 	//Fetching consul token to be able to load wrapper config
-	consulTokenSecret, err := vaultUtils.Read(conf.GenericRef{Path: s.ConsulTokenPath})
+	consulTokenSecret, err := vaultUtils.Read(&conf.GenericRef{Path: s.ConsulTokenPath})
 	if err != nil {
-		log.Fatal(err)
+		logger.GetLogger().Fatal(err)
 	}
 
 	consulToken := consulTokenSecret.Data["token"].(string)
-	println(consulToken)
+	logger.GetLogger().Debugf("Consul token: %s", consulToken)
+
+	consulUtils := consul.NewConsulUtils(s, consulToken)
+	configKV, err := consulUtils.GetPodConfig()
+	if err != nil {
+		logger.GetLogger().Fatal(err)
+	} else if configKV == nil {
+		logger.GetLogger().Fatal("Could not fetch pod's config")
+	}
+	definition := conf.GetInjectionDefinition(configKV.Value)
 
 	//Map linking secretRef to the actual Vault Secret
-	secretMap := make(map[conf.GenericRef]*vaultapi.Secret)
+	secretMap := make(map[*conf.GenericRef]*vaultapi.Secret)
+	consulMap := make(map[*conf.GenericRef]*consulapi.KVPair)
 
 	//Fetching all secrets from vault
+	logger.GetLogger().Info("Fetching vault secrets")
 	for _, secretRef := range definition.Vault {
 		secret, err := vaultUtils.Read(secretRef)
 		if err != nil {
-			log.Printf("error during secret fetch: %v", err)
+			logger.GetLogger().Errorf("error during secret fetch: %v", err)
 		} else if secret == nil {
-			log.Printf("No secret found at %v", secretRef.Path)
+			logger.GetLogger().Errorf("No secret found at %v", secretRef.Path)
 		} else {
 			secretMap[secretRef] = secret
 		}
 	}
 
-	wrap(definition, secretMap)
-}
-
-func find(secretMap map[conf.GenericRef]*vaultapi.Secret, key string) (conf.GenericRef, *vaultapi.Secret) {
-	for k, v := range secretMap {
-		if ( k.Name == key ) {
-			return k,v
+	//Fetching all values from consul
+	logger.GetLogger().Info("Fetching consul values")
+	for _, consulRef := range definition.Consul {
+		kvPair, err := consulUtils.GetValue(consulRef.Path)
+		if err != nil {
+			logger.GetLogger().Errorf("Error while fetchin consul path %v, %v", consulRef.Path, err)
+		} else if kvPair == nil {
+			logger.GetLogger().Errorf("Could not find any KV at path %v", consulRef.Path)
+		} else {
+			consulMap[consulRef] = kvPair
 		}
 	}
+
+	wrap(&definition, secretMap, consulMap, consulUtils)
 }
 
-func wrap(definition *conf.InjectionDefinition, secretMap map[conf.GenericRef]*vaultapi.Secret) {
+func find(secretMap map[*conf.GenericRef]*vaultapi.Secret, consulMap map[*conf.GenericRef]*consulapi.KVPair, key string) (*conf.GenericRef, interface{}) {
+	for k, v := range secretMap {
+		if k.Name == key {
+			return k, v
+		}
+	}
+	for k, v := range consulMap {
+		if k.Name == key {
+			return k, v
+		}
+	}
+	return nil, nil
+}
+
+func wrap(definition *conf.InjectionDefinition, secretMap map[*conf.GenericRef]*vaultapi.Secret, consulMap map[*conf.GenericRef]*consulapi.KVPair, consulUtils *consul.ConsulUtils) {
 	// Go spawn process with some env file
 	//cmd := exec.Command("nc", "-l", "-p", "10000")
 	cmd := exec.Command("bash", "-c", "set | grep ^DEMO")
@@ -68,15 +101,60 @@ func wrap(definition *conf.InjectionDefinition, secretMap map[conf.GenericRef]*v
 	cmd.Stderr = os.Stderr
 	env := os.Environ()
 
-	for envVarRef := range definition.Env {
-		if envVarRef.Value != nil {
-			env = append(env, fmt.Sprintf("%s=%s", envVarRef.Name, envVarRef.Value))
-		} else envVarRef.ValueFrom != nil && envVarRef.ValueFrom.SecretKeyRef != nil {
-			ref, secret := find(secretMap, envVarRef.ValueFrom.SecretKeyRef.Name)
-			env = append(env, fmt.Sprintf("%s=%s", envVarRef.ValueFrom.SecretKeyRef.Name, secret.Data[envVarRef.ValueFrom.SecretKeyRef.Key].(string)))
+	// Import all defined environment variable into the process
+	logger.GetLogger().Infof("Processing environment variables")
+	envValues := getValues(secretMap, consulMap, definition.Env)
+	for k, v := range envValues {
+		logger.GetLogger().Infof("Processing env %v", k)
+		env = append(env, fmt.Sprintf("%s=%s", k, v))
+	}
+
+	// Create all requested files
+	logger.GetLogger().Infof("Processing files")
+	for _, envVarRef := range definition.Files {
+		logger.GetLogger().Infof("Processing file %s", envVarRef.Name)
+		kvPair, err := consulUtils.GetFile("files", envVarRef.Name)
+		if err != nil {
+			logger.GetLogger().Warningf("Could not get file %v", envVarRef.Name)
+		} else {
+			//TODO Write file
+			logger.GetLogger().Infof("Writing file %v to %v", envVarRef.Name, envVarRef.Destination)
+			err := ioutil.WriteFile(envVarRef.Destination, []byte(kvPair.Value), 0644)
+			if err != nil {
+				logger.GetLogger().Errorf("Error while writing file %v", err)
+			}
 		}
 	}
-	//
+
+	// Create all requested templated files
+	logger.GetLogger().Infof("Processing templates")
+	for _, envVarRef := range definition.Templates {
+		logger.GetLogger().Infof("Processing template %s", envVarRef.Name)
+		kvPair, err := consulUtils.GetFile("templates", envVarRef.Name)
+		if err != nil {
+			logger.GetLogger().Warningf("Could not get template %v", envVarRef.Name)
+		} else {
+			templateValues := getValues(secretMap, consulMap, envVarRef.Env)
+
+			t := template.New(envVarRef.Name)
+			t, err = t.Parse(string(kvPair.Value))
+			if err != nil {
+				logger.GetLogger().Fatal(err)
+			}
+			//TODO Write file
+			logger.GetLogger().Infof("Writing templated file %v to %v", envVarRef.Name, envVarRef.Destination)
+			f, err := os.Create(envVarRef.Destination)
+			f.Chmod(0644)
+			defer f.Close()
+			if err != nil {
+				logger.GetLogger().Error(err)
+			}
+			err = t.Execute(f, templateValues)
+			if err != nil {
+				logger.GetLogger().Error(err)
+			}
+		}
+	}
 
 	cmd.Env = env
 	err := cmd.Start()
@@ -86,18 +164,46 @@ func wrap(definition *conf.InjectionDefinition, secretMap map[conf.GenericRef]*v
 	logger.GetLogger().Infof("Waiting for command to finish...")
 	err = cmd.Wait()
 	logger.GetLogger().Infof("Command finished with error: %v", err)
-
 }
-func test() *conf.InjectionDefinition {
-	jsonBlob, err := ioutil.ReadFile("/opt/dev/workspace/vault-demo/examples/consul/kube-pod-decorator.yaml")
-	if err != nil {
-		log.Fatal(err)
-	}
-	log.Print("Converting yaml")
-	definition := conf.GetInjectionDefinition(jsonBlob)
-	//log.Printf("%v", definition)
 
-	return &definition
+func getValues(secretMap map[*conf.GenericRef]*vaultapi.Secret, consulMap map[*conf.GenericRef]*consulapi.KVPair, envs []*conf.EnvVar) map[string]string {
+	values := make(map[string]string)
+	for _, envVarRef := range envs {
+		if len(envVarRef.Value) > 0 {
+			//logger.GetLogger().Infof("Adding consul Env %s", envVarRef.Name)
+			values[envVarRef.Name] = envVarRef.Value
+		} else if envVarRef.ValueFrom != nil && envVarRef.ValueFrom.SecretKeyRef != nil {
+			_, value := find(secretMap, consulMap, envVarRef.ValueFrom.SecretKeyRef.Name)
+			if value != nil {
+				//logger.GetLogger().Infof("Adding secret Env %s", envVarRef.Name)
+				secret := value.(*vaultapi.Secret)
+				values[envVarRef.Name] = secret.Data[envVarRef.ValueFrom.SecretKeyRef.Key].(string)
+			} else {
+				logger.GetLogger().Warningf("Could not find secret for %s with key %s", envVarRef.Name, envVarRef.ValueFrom.SecretKeyRef.Name)
+			}
+		} else if envVarRef.ValueFrom != nil && envVarRef.ValueFrom.Consul != nil {
+			ref, value := find(secretMap, consulMap, envVarRef.ValueFrom.Consul.Name)
+			if value != nil {
+				kvPair := value.(*consulapi.KVPair)
+				if ref.Type == "json" {
+					var jsonObj map[string]interface{}
+					err := json.Unmarshal([]byte(kvPair.Value), &jsonObj)
+					if err != nil {
+						logger.GetLogger().Errorf("Error unmarshalling json for %v : %v", envVarRef.Name, kvPair.Value)
+					} else {
+						values[envVarRef.Name] = jsonObj[envVarRef.ValueFrom.Consul.Key].(string)
+					}
+				} else {
+					values[envVarRef.Name] = string(kvPair.Value)
+				}
+			} else {
+				logger.GetLogger().Warningf("Could not find consul KV for %s with key %s", envVarRef.Name, envVarRef.ValueFrom.Consul.Name)
+			}
+		} else {
+			logger.GetLogger().Warningf("Nothing found to do with %s", envVarRef.Name)
+		}
+	}
+	return values
 }
 
 // makeShutdownCh returns a channel that can be used for shutdown
