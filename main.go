@@ -94,11 +94,6 @@ func find(secretMap map[*conf.GenericRef]*vaultapi.Secret, consulMap map[*conf.G
 }
 
 func wrap(definition *conf.InjectionDefinition, secretMap map[*conf.GenericRef]*vaultapi.Secret, consulMap map[*conf.GenericRef]*consulapi.KVPair, consulUtils *consul.ConsulUtils) {
-	// Go spawn process with some env file
-	//cmd := exec.Command("nc", "-l", "-p", "10000")
-	cmd := exec.Command("bash", "-c", "set | grep ^DEMO")
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
 	env := os.Environ()
 
 	// Import all defined environment variable into the process
@@ -141,21 +136,23 @@ func wrap(definition *conf.InjectionDefinition, secretMap map[*conf.GenericRef]*
 			if err != nil {
 				logger.GetLogger().Fatal(err)
 			}
-			//TODO Write file
 			logger.GetLogger().Infof("Writing templated file %v to %v", envVarRef.Name, envVarRef.Destination)
 			f, err := os.Create(envVarRef.Destination)
 			f.Chmod(0644)
 			defer f.Close()
 			if err != nil {
-				logger.GetLogger().Error(err)
+				logger.GetLogger().Errorf("File creation failure %v", err)
 			}
 			err = t.Execute(f, templateValues)
 			if err != nil {
-				logger.GetLogger().Error(err)
+				logger.GetLogger().Errorf("Templating failure %v", err)
 			}
 		}
 	}
 
+	cmd := exec.Command(os.Args[1], os.Args[:2]...)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
 	cmd.Env = env
 	err := cmd.Start()
 	if err != nil {
