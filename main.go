@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"sync"
 	"syscall"
 
 	consulapi "github.com/hashicorp/consul/api"
@@ -26,7 +27,8 @@ func main() {
 
 	var s = conf.GetSpecification()
 
-	vaultUtils := vault.NewVaultUtils(s)
+	shutdownCh := makeShutdownCh()
+	vaultUtils := vault.NewVaultUtils(s, shutdownCh)
 
 	//Fetching consul token to be able to load wrapper config
 	consulTokenSecret, err := vaultUtils.Read(&conf.GenericRef{Path: s.ConsulTokenPath})
@@ -76,7 +78,24 @@ func main() {
 		}
 	}
 
-	wrap(&definition, secretMap, consulMap, consulUtils)
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		vaultUtils.StartRenewal()
+		logger.GetLogger().Infof("Terminating go routine for renewal")
+	}()
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		wrap(&definition, secretMap, consulMap, consulUtils, shutdownCh)
+		vaultUtils.Revoke()
+		vaultUtils.Shutdown()
+	}()
+
+	wg.Wait()
+	logger.GetLogger().Info("Exiting main wrapper process")
 }
 
 func find(secretMap map[*conf.GenericRef]*vaultapi.Secret, consulMap map[*conf.GenericRef]*consulapi.KVPair, key string) (*conf.GenericRef, interface{}) {
@@ -93,7 +112,7 @@ func find(secretMap map[*conf.GenericRef]*vaultapi.Secret, consulMap map[*conf.G
 	return nil, nil
 }
 
-func wrap(definition *conf.InjectionDefinition, secretMap map[*conf.GenericRef]*vaultapi.Secret, consulMap map[*conf.GenericRef]*consulapi.KVPair, consulUtils *consul.ConsulUtils) {
+func wrap(definition *conf.InjectionDefinition, secretMap map[*conf.GenericRef]*vaultapi.Secret, consulMap map[*conf.GenericRef]*consulapi.KVPair, consulUtils *consul.ConsulUtils, shutdownChan <-chan struct{}) {
 	env := os.Environ()
 
 	// Import all defined environment variable into the process
@@ -159,6 +178,7 @@ func wrap(definition *conf.InjectionDefinition, secretMap map[*conf.GenericRef]*
 		log.Fatal(err)
 	}
 	logger.GetLogger().Infof("Waiting for command to finish...")
+	makeProcessShutdownCh(cmd.Process)
 	err = cmd.Wait()
 	logger.GetLogger().Infof("Command finished with error: %v", err)
 }
@@ -220,6 +240,29 @@ func makeShutdownCh() <-chan struct{} {
 				shutdownInProgress = true
 			} else {
 				logger.GetLogger().Fatal("Double shutdown triggered, killing the process")
+			}
+			resultCh <- struct{}{}
+		}
+	}()
+	return resultCh
+}
+
+func makeProcessShutdownCh(process *os.Process) <-chan struct{} {
+	resultCh := make(chan struct{})
+
+	signalCh := make(chan os.Signal, 4)
+	signal.Notify(signalCh, os.Interrupt, syscall.SIGTERM)
+	go func() {
+		var shutdownInProgress = false
+		for {
+			signal := <-signalCh
+			if shutdownInProgress == false {
+				logger.GetLogger().Debug("shutdown trigger")
+				process.Signal(signal)
+				shutdownInProgress = true
+			} else {
+				logger.GetLogger().Fatal("Double shutdown triggered, killing the process")
+				process.Kill()
 			}
 			resultCh <- struct{}{}
 		}
