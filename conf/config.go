@@ -13,6 +13,7 @@ const default_consul_token_path string = "consul/creds/readonly"
 // Specification is the basic configuration injected to the wrapper process
 type Specification struct {
 	ApplicationName                       string
+	LogLevel                              string
 	VaultSecretPath                       string
 	ConsulTokenPath                       string
 	VaultLeaseDurationSeconds             int
@@ -68,6 +69,10 @@ func (s *Specification) validate() {
 		logger.GetLogger().Fatal("ApplicationName can not be empty")
 	}
 
+	if len(s.LogLevel) == 0 {
+		s.LogLevel = "info"
+	}
+
 	if s.VaultLeaseDurationSeconds == 0 {
 		s.VaultLeaseDurationSeconds = 600
 	}
@@ -80,7 +85,7 @@ func (s *Specification) validate() {
 		s.VaultLeaseRenewalPercentage = 75
 	}
 
-	logger.GetLogger().Infof("Config: %v", s)
+	logger.GetLogger().Debugf("Config: %v", s)
 }
 
 func GetSpecification() Specification {

@@ -24,8 +24,9 @@ func NewVaultUtils(
 	shutdownChan <-chan struct{},
 ) *VaultUtils {
 	vu := VaultUtils{
-		config:     config,
-		ShutdownCh: shutdownChan,
+		config:        config,
+		ShutdownCh:    shutdownChan,
+		localShutdown: make(chan bool, 1),
 	}
 	vu.init()
 	return &vu
@@ -89,7 +90,7 @@ OUT:
 				logger.GetLogger().Errorf("Error while calling renew %v, will retry in %v", err, retryDelay)
 			} else {
 				renewTicker = time.NewTimer(c)
-				logger.GetLogger().Infof("Next lease renewal will be in %v", c)
+				logger.GetLogger().Debugf("Next lease renewal will be in %v", c)
 			}
 		}
 	}
