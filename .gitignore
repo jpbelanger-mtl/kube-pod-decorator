@@ -1,0 +1,7 @@
+dist/
+vendor/
+glide.lock
+version.go
+.vscode/
+bin/
+build/
