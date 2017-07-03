@@ -85,7 +85,7 @@ depend: bin/$(GLIDE_EXEC)
 	for d in $(INSTALL_DEPEND); do (cd vendor/$$d && go install); done
 
 docker:
-	docker build -t kube-pod-decorator:latest .
+	docker build -t $(NAME):latest .
 
 clean:
 	rm -rf build $(EXE)

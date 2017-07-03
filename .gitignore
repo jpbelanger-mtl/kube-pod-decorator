@@ -5,3 +5,4 @@ version.go
 .vscode/
 bin/
 build/
+debug

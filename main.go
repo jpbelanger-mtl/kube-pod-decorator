@@ -1,6 +1,7 @@
 package main
 
 import (
+	"os"
 	"sync"
 
 	consulapi "github.com/hashicorp/consul/api"
@@ -38,6 +39,11 @@ func main() {
 		logger.GetLogger().Fatal("Could not fetch pod's config")
 	}
 	definition := conf.GetInjectionDefinition(configKV.Value)
+
+	if definition.Key != s.ApplicationName {
+		logger.GetLogger().Errorf("Configuration key from consul (%v) does not match wrapper's ApplicationName (%v)", definition.Key, s.ApplicationName)
+		os.Exit(1)
+	}
 
 	//Map linking secretRef to the actual Vault Secret
 	secretMap := make(map[*conf.GenericRef]*vaultapi.Secret)
