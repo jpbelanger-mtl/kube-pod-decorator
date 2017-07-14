@@ -41,7 +41,7 @@ endif
 # the default target builds a binary in the top-level dir for whatever the local OS is
 default: $(EXE)
 $(EXE): *.go version
-	go build -o $(EXE) 
+	go build -o $(EXE) -tags $(NAME)
 
 install: $(EXE)
 	go install
@@ -57,7 +57,7 @@ build: $(EXE) $(UPLOADS)
 build/$(NAME)-%.tgz: *.go version
 	rm -rf build/$(NAME)
 	mkdir -p build/$(NAME)
-	tgt=$*; CGO_ENABLED=0 GOOS=$${tgt%-*} GOARCH=$${tgt#*-} go build -tags netgo -a -v -o build/$(NAME)/$(NAME) .
+	tgt=$*; CGO_ENABLED=0 GOOS=$${tgt%-*} GOARCH=$${tgt#*-} go build -tags $(NAME) -a -v -o build/$(NAME)/$(NAME) .
 	chmod +x build/$(NAME)/$(NAME)
 	tar -zcf $@ -C build $(NAME)
 	rm -r build/$(NAME)

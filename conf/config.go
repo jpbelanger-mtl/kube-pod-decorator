@@ -9,6 +9,10 @@ import (
 
 const default_vault_secret_path string = "/var/run/secrets/vaultproject.io/secret.json"
 const default_consul_token_path string = "consul/creds/readonly"
+const default_loglevel string = "info"
+const default_ttl int = 600
+const default_lease_renewal_percentage int = 75
+const default_lease_failure_retry_interval int = 10
 
 // Specification is the basic configuration injected to the wrapper process
 type Specification struct {
@@ -73,25 +77,17 @@ func (s *Specification) validate() {
 		s.LogLevel = "info"
 	}
 
-	if s.VaultLeaseDurationSeconds == 0 {
-		s.VaultLeaseDurationSeconds = 600
-	}
-
-	if s.VaultRenewFailureRetryIntervalSeconds == 0 {
-		s.VaultRenewFailureRetryIntervalSeconds = 10
-	}
-
-	if s.VaultLeaseRenewalPercentage == 0 {
-		s.VaultLeaseRenewalPercentage = 75
-	}
-
 	logger.GetLogger().Debugf("Config: %v", s)
 }
 
 func GetSpecification() Specification {
 	s := Specification{
-		VaultSecretPath: default_vault_secret_path,
-		ConsulTokenPath: default_consul_token_path,
+		VaultSecretPath:                       default_vault_secret_path,
+		ConsulTokenPath:                       default_consul_token_path,
+		VaultLeaseDurationSeconds:             default_ttl,
+		VaultLeaseRenewalPercentage:           default_lease_renewal_percentage,
+		VaultRenewFailureRetryIntervalSeconds: default_lease_failure_retry_interval,
+		LogLevel: default_loglevel,
 	}
 	err := envconfig.Process("k8sPodDecorator", &s)
 	if err != nil {

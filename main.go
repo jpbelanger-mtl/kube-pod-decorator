@@ -15,6 +15,7 @@ import (
 )
 
 func main() {
+	logger.GetLogger().Infof("Starting: %v", VV)
 	var s = conf.GetSpecification()
 
 	logger.InitLogger(s.LogLevel)
