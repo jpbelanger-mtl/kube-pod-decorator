@@ -29,6 +29,9 @@ The choice to select a wrapper process instead of a side-car pod came to the fol
 * Supports configuration templates (with variable expansion)
 * Revokes token on process termination
 
+## Diagram
+![Diagram](https://rawgithub.com/jpbelanger-mtl/kube-pod-decorator/master/diagrams/kube-pod-decorator.svg)
+
 ## Todo
 
 * Manage each secret lease individually
