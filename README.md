@@ -35,7 +35,7 @@ The choice to select a wrapper process instead of a side-car pod came to the fol
 ## Todo
 
 * Manage each secret lease individually
-* Implements config as Kubernetes CustomResourceDefinitions as an optional syntax?
+* Integrate vault-controller logic within the wrapper process. Removing the need to have more than one init-container. This will also remove the need to push the token to the mounted volume.
 
 ## Usage
 
