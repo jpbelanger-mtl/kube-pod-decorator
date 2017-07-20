@@ -1,10 +1,11 @@
 package conf
 
 import (
-	"gopkg.in/yaml.v2"
+	"os"
 
 	"github.com/jpbelanger-mtl/kube-pod-decorator/logger"
 	"github.com/kelseyhightower/envconfig"
+	"gopkg.in/yaml.v2"
 )
 
 const default_vault_secret_path string = "/var/run/secrets/vaultproject.io/secret.json"
@@ -101,7 +102,7 @@ func GetSpecification() Specification {
 
 func GetInjectionDefinition(jsonBlob []byte) InjectionDefinition {
 	var definition InjectionDefinition
-	err := yaml.Unmarshal(jsonBlob, &definition)
+	err := yaml.Unmarshal([]byte(os.ExpandEnv(string(jsonBlob))), &definition)
 	if err != nil {
 		logger.GetLogger().Fatal(err)
 	}

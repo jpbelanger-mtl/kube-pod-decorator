@@ -170,3 +170,5 @@ consul:
 * `templates`: List of templates (`go template` format) to mount to the volume and the list of variables available for expansion
 * `vault`: Vault's secret path to "mount"
 * `consul`: Consul value path to "mount"
+
+This file also supports variable expansion. You can use `${ENV_VAR} ` syntax, and reference any of your container environment variable in it.
