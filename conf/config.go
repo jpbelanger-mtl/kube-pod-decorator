@@ -10,6 +10,7 @@ import (
 
 const default_vault_secret_path string = "/var/run/secrets/vaultproject.io/secret.json"
 const default_consul_token_path string = "consul/creds/readonly"
+const default_consul_config_root string = "config/kube-pod-decorator"
 const default_loglevel string = "info"
 const default_ttl int = 600
 const default_lease_renewal_percentage int = 75
@@ -18,6 +19,7 @@ const default_lease_failure_retry_interval int = 10
 // Specification is the basic configuration injected to the wrapper process
 type Specification struct {
 	ApplicationName                       string
+	ConsulConfigRoot                      string
 	LogLevel                              string
 	VaultSecretPath                       string
 	ConsulTokenPath                       string
@@ -85,6 +87,7 @@ func GetSpecification() Specification {
 	s := Specification{
 		VaultSecretPath:                       default_vault_secret_path,
 		ConsulTokenPath:                       default_consul_token_path,
+		ConsulConfigRoot:                      default_consul_config_root,
 		VaultLeaseDurationSeconds:             default_ttl,
 		VaultLeaseRenewalPercentage:           default_lease_renewal_percentage,
 		VaultRenewFailureRetryIntervalSeconds: default_lease_failure_retry_interval,

@@ -6,3 +6,4 @@ version.go
 bin/
 build/
 debug
+kube-pod-decorator

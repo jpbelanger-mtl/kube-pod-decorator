@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"path"
 	"syscall"
 
 	consulapi "github.com/hashicorp/consul/api"
@@ -35,11 +36,14 @@ func Wrap(definition *conf.InjectionDefinition, secretMap map[*conf.GenericRef]*
 	for _, envVarRef := range definition.Files {
 		logger.GetLogger().Infof("Processing file %s", envVarRef.Name)
 		kvPair, err := consulUtils.GetFile("files", envVarRef.Name)
-		if err != nil {
+		if err != nil || kvPair == nil {
 			logger.GetLogger().Warningf("Could not get file %v", envVarRef.Name)
 		} else {
-			//TODO Write file
 			logger.GetLogger().Infof("Writing file %v to %v", envVarRef.Name, envVarRef.Destination)
+			parentDir := path.Dir(envVarRef.Destination)
+			if os.MkdirAll(parentDir, 0777) != nil {
+				logger.GetLogger().Errorf("Unable to create directory '%v' for file '%v'", parentDir, envVarRef.Destination)
+			}
 			err := ioutil.WriteFile(envVarRef.Destination, []byte(kvPair.Value), 0644)
 			if err != nil {
 				logger.GetLogger().Errorf("Error while writing file %v", err)
@@ -52,7 +56,7 @@ func Wrap(definition *conf.InjectionDefinition, secretMap map[*conf.GenericRef]*
 	for _, envVarRef := range definition.Templates {
 		logger.GetLogger().Infof("Processing template %s", envVarRef.Name)
 		kvPair, err := consulUtils.GetFile("templates", envVarRef.Name)
-		if err != nil {
+		if err != nil || kvPair == nil {
 			logger.GetLogger().Warningf("Could not get template %v", envVarRef.Name)
 		} else {
 			templateValues := getValues(secretMap, consulMap, envVarRef.Env)
@@ -63,6 +67,10 @@ func Wrap(definition *conf.InjectionDefinition, secretMap map[*conf.GenericRef]*
 				logger.GetLogger().Fatal(err)
 			}
 			logger.GetLogger().Infof("Writing templated file %v to %v", envVarRef.Name, envVarRef.Destination)
+			parentDir := path.Dir(envVarRef.Destination)
+			if os.MkdirAll(parentDir, 0777) != nil {
+				logger.GetLogger().Errorf("Unable to create directory '%v' for templated file '%v'", parentDir, envVarRef.Destination)
+			}
 			f, err := os.Create(envVarRef.Destination)
 			f.Chmod(0644)
 			defer f.Close()

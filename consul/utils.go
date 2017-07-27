@@ -34,7 +34,7 @@ func (cu *ConsulUtils) init(token string) {
 }
 
 func (cu *ConsulUtils) GetPodConfig() (*consul.KVPair, error) {
-	path := fmt.Sprintf("config/kube-pod-decorator/%v/config", cu.config.ApplicationName)
+	path := fmt.Sprintf("%v/%v/config", cu.config.ConsulConfigRoot, cu.config.ApplicationName)
 	logger.GetLogger().Infof("Fetching pod's config at %v", path)
 	kv, _, err := cu.client.KV().Get(path, &consul.QueryOptions{})
 	if err != nil {
@@ -44,8 +44,8 @@ func (cu *ConsulUtils) GetPodConfig() (*consul.KVPair, error) {
 }
 
 func (cu *ConsulUtils) GetFile(folder string, filename string) (*consul.KVPair, error) {
-	path := fmt.Sprintf("config/kube-pod-decorator/%v/%v/%v", cu.config.ApplicationName, folder, filename)
-	logger.GetLogger().Infof("Fetching pod's config at %v", path)
+	path := fmt.Sprintf("%v/%v/%v/%v", cu.config.ConsulConfigRoot, cu.config.ApplicationName, folder, filename)
+	logger.GetLogger().Infof("Fetching file at %v", path)
 	kv, _, err := cu.client.KV().Get(path, &consul.QueryOptions{})
 	if err != nil {
 		return nil, err

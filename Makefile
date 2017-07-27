@@ -84,8 +84,14 @@ depend: bin/$(GLIDE_EXEC)
 	./bin/$(GLIDE_EXEC) --quiet install --cache
 	for d in $(INSTALL_DEPEND); do (cd vendor/$$d && go install); done
 
-docker:
+.PHONY: docker
+docker: version build
 	docker build -t $(NAME):latest .
+
+.PHONY: docker-push
+docker-push:
+	docker tag $(NAME) jpbelanger/$(NAME):$(BRANCH_NAME)
+	docker push jpbelanger/$(NAME):$(BRANCH_NAME)
 
 clean:
 	rm -rf build $(EXE)
